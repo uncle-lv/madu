@@ -2,6 +2,9 @@ import socket
 import sys
 import io
 import datetime
+import traceback
+from threading import Thread
+from queue import Empty, Queue
 from typing import Callable,  Tuple
 
 __version__ = '0.1'
@@ -13,24 +16,12 @@ class WSGIServer:
     socket_type = socket.SOCK_STREAM
     request_queue_size = 5
     
-    def __init__(self, server_addr: Tuple[str, int], RequestHandlerClass) -> None:
+    def __init__(self, server_addr: Tuple[str, int], RequestHandlerClass, worker_count: int = 16) -> None:
         self.server_addr = server_addr
         self.RequsetHandlerClass = RequestHandlerClass
-        self.socket = socket.socket(
-            self.addr_family,
-            self.socket_type
-        )
-        
-        self.socket.setsockopt(
-            socket.SOL_SOCKET, 
-            socket.SO_REUSEADDR, 
-            1
-        )
-        
-        self.socket.bind(self.server_addr)
-        self.socket.listen(self.request_queue_size)
-        self.host, self.port = self.socket.getsockname()[:2]
-        self.server_name = socket.getfqdn(self.host)
+        self.worker_count = worker_count
+        self.worker_backlog = worker_count * 8
+        self.connection_queue = Queue(self.worker_backlog)
         
     def set_app(self, application: Callable) -> None:
         self.application = application
@@ -40,10 +31,35 @@ class WSGIServer:
         return self.application
         
     def serve_forever(self) -> None:
-        listen_socket = self.socket
-        while True:
-            client_connection, _ = listen_socket.accept()
-            self.handle_request(client_connection)
+        workers = []
+        for _ in range(self.worker_count):
+            worker = WSGIServerWorker(self.connection_queue, self.RequsetHandlerClass, self)
+            worker.start()
+            workers.append(worker)
+        
+        with socket.socket() as server_socket:
+            server_socket.setsockopt(
+                socket.SOL_SOCKET, 
+                socket.SO_REUSEADDR, 
+                1
+            )
+            server_socket.bind(self.server_addr)
+            server_socket.listen(self.worker_backlog)
+            self.host, self.port = server_socket.getsockname()[:2]
+            self.server_name = socket.getfqdn(self.host)
+            print(f'WSGIServer: Serving HTTP on port {PORT} ...\n')
+            
+            while True:
+                try:
+                    self.connection_queue.put(server_socket.accept())
+                except KeyboardInterrupt:
+                    break
+                
+        for worker in workers:
+            worker.stop()
+            
+        for worker in workers:
+            worker.join(timeout=30)
             
     def handle_request(self, client_connection) -> None:
         self.RequsetHandlerClass(client_connection, self).handle(self.get_app)
@@ -59,12 +75,13 @@ class WSGIRequestHandler:
         self.headers = []
     
     def get_environ(self) -> dict:
+        print(type(self))
         env = {}
         env['wsgi.version']      = (1, 0)
         env['wsgi.url_scheme']   = 'http'
         env['wsgi.input']        = io.StringIO(self.request_data)
         env['wsgi.errors']       = sys.stderr
-        env['wsgi.multithread']  = False
+        env['wsgi.multithread']  = True
         env['wsgi.multiprocess'] = False
         env['wsgi.run_once']     = False
         env['REQUEST_METHOD']    = self.request_method
@@ -117,6 +134,37 @@ class WSGIRequestHandler:
             self.client_connection.close()
 
 
+class WSGIServerWorker(Thread):
+    def __init__(self, connection_queue: Queue, RequestHandlerClass, server: WSGIServer) -> None:
+        super().__init__(daemon=True)
+        
+        self.connection_queue = connection_queue
+        self.RequestHandlerClass = RequestHandlerClass
+        self.server = server
+        self.running = True
+        
+    def stop(self) -> None:
+        self.running = False
+        
+    def run(self) -> None:
+        self.running = True
+        while self.running:
+            try:
+                client_connection, _ = self.connection_queue.get(timeout=1)
+            except Empty:
+                continue
+            
+            try:
+                self.handle_request(client_connection, application)
+            except Exception as e:
+                traceback.print_exc()
+            finally:
+                self.connection_queue.task_done()
+                
+    def handle_request(self, client_connection: socket.socket, application: Callable) -> None:
+        self.RequestHandlerClass(client_connection, self.server).handle(application)
+        
+
 SERVER_ADDR = (HOST, PORT) = '', 8000
 
 
@@ -134,5 +182,4 @@ if __name__ == '__main__':
     module = __import__(module)
     application = getattr(module, application)
     httpd = make_server(SERVER_ADDR, application)
-    print(f'WSGIServer: Serving HTTP on port {PORT} ...\n')
     httpd.serve_forever()
