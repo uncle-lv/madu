@@ -1,6 +1,6 @@
 # madu
 
-![](https://img.shields.io/github/license/uncle-lv/madu) ![](https://img.shields.io/github/stars/uncle-lv/madu) ![](https://img.shields.io/github/issues/uncle-lv/madu) ![](https://img.shields.io/github/forks/uncle-lv/madu)
+![](https://img.shields.io/github/license/uncle-lv/madu) ![](https://img.shields.io/github/stars/uncle-lv/madu) ![](https://img.shields.io/github/issues/uncle-lv/madu) ![](https://img.shields.io/github/forks/uncle-lv/madu) ![flask version](https://img.shields.io/badge/flask-2.0.1-red) ![python version](https://img.shields.io/badge/python-3.7.0-blue)
 
 madu is a simple WSGI HTTP Server
 
@@ -10,17 +10,17 @@ Out of my personal interests, I started this project. So there is no schedule fo
 
 ## Usage
 
-### Install Flask
+### Install dependencies
 
-The example application is built with Flask. Please ensure Flask has been installed on you device. You can install it using the command below.
+Install dependencies from requirements.txt.
 
 ```bash
-$ pip install Flask
+$ pip install -r requirements.txt
 ```
 
 ### Start madu
 
-Using one of the commands below to start madu. . It only supports Python3.
+Using one of the commands below to start madu. It only supports Python3.
 
 ```bash
 $ python server.py app:app
