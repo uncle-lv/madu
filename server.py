@@ -10,6 +10,14 @@ from typing import Callable,  Tuple
 __version__ = '0.1'
 __server_version__ = 'madu/' + __version__
 
+Bad_Request = b"""\
+HTTP/1.1 400 Bad Request
+Content-type: text/plain
+Content-length: 11
+
+Bad Request""".replace(b"\n", b"\r\n")
+
+
 class WSGIServer:
     
     addr_family = socket.AF_INET
@@ -75,7 +83,6 @@ class WSGIRequestHandler:
         self.headers = []
     
     def get_environ(self) -> dict:
-        print(type(self))
         env = {}
         env['wsgi.version']      = (1, 0)
         env['wsgi.url_scheme']   = 'http'
@@ -93,10 +100,11 @@ class WSGIRequestHandler:
     def handle(self, application: Callable) -> None:
         request_data = self.client_connection.recv(1024)
         self.request_data = request_data = request_data.decode('utf-8')
-        print(''.join(
-            f'< {line}\n' for line in request_data.splitlines()
-        ))
-        self.parse_request(request_data)
+        try:
+            self.parse_request("")
+        except IndexError:
+            self.client_connection.sendall(Bad_Request)
+            return
         env = self.get_environ()
         result = application(env, self.start_response)
         self.finish_response(result)
@@ -109,7 +117,10 @@ class WSGIRequestHandler:
         self.headers = [status, response_headers + server_headers]
         
     def parse_request(self, text: str) -> None:
-        request_line = text.splitlines()[0]
+        try:
+            request_line = text.splitlines()[0]
+        except IndexError:
+            raise IndexError
         request_line = request_line.rstrip('\r\n')
         (self.request_method, 
          self.path,
@@ -125,9 +136,6 @@ class WSGIRequestHandler:
             response += '\r\n'
             for data in result:
                 response += data.decode('utf-8')
-            print(''.join(
-                f'> {line}\n' for line in response.splitlines()
-            ))
             response_bytes = response.encode()
             self.client_connection.sendall(response_bytes)
         finally:
