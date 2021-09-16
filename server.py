@@ -6,16 +6,8 @@ import traceback
 from threading import Thread
 from queue import Empty, Queue
 from typing import Callable,  Tuple
-
-__version__ = '0.1'
-__server_version__ = 'madu/' + __version__
-
-Bad_Request = b"""\
-HTTP/1.1 400 Bad Request
-Content-type: text/plain
-Content-length: 11
-
-Bad Request""".replace(b"\n", b"\r\n")
+from loguru import logger
+from constant import __SERVER_VERSION__, __SOFTWARE_VERSION__, BAD_REQUEST
 
 
 class WSGIServer:
@@ -55,7 +47,7 @@ class WSGIServer:
             server_socket.listen(self.worker_backlog)
             self.host, self.port = server_socket.getsockname()[:2]
             self.server_name = socket.getfqdn(self.host)
-            print(f'WSGIServer: Serving HTTP on port {PORT} ...\n')
+            logger.info(f'madu is running on http://127.0.0.1:{PORT}/')
             
             while True:
                 try:
@@ -75,7 +67,7 @@ class WSGIServer:
             
 class WSGIRequestHandler:
     
-    server_version = __server_version__
+    server_version = __SERVER_VERSION__
     
     def __init__(self, client_connection: socket.socket, server: WSGIServer) -> None:
         self.client_connection = client_connection
@@ -101,9 +93,9 @@ class WSGIRequestHandler:
         request_data = self.client_connection.recv(1024)
         self.request_data = request_data = request_data.decode('utf-8')
         try:
-            self.parse_request("")
+            self.parse_request(request_data)
         except IndexError:
-            self.client_connection.sendall(Bad_Request)
+            self.client_connection.sendall(BAD_REQUEST)
             return
         env = self.get_environ()
         result = application(env, self.start_response)
@@ -112,7 +104,7 @@ class WSGIRequestHandler:
     def start_response(self, status, response_headers, exc_info=None) -> None:
         server_headers = [
             ('DATE', datetime.datetime.now(datetime.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %Z")),
-            ('SERVER_SOFTWARE', __server_version__),
+            ('SERVER_SOFTWARE', __SERVER_VERSION__),
         ]
         self.headers = [status, response_headers + server_headers]
         
@@ -124,7 +116,7 @@ class WSGIRequestHandler:
         request_line = request_line.rstrip('\r\n')
         (self.request_method, 
          self.path,
-         self.request_version
+         self.proto_version
          ) = request_line.split()
         
     def finish_response(self, result) -> None:
